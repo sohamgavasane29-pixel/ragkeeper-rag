@@ -60,70 +60,7 @@ on the golden set:
 | MRR | 0.722 | correctness | 4.47 | total cost | $0.00574 |
 | nDCG@k | 1.123 | | | | |
 
-## Phase 4 — MCP interface
-Exposes the existing Phase 3 retrieval pipeline (and Phase 2 index-health data) to external
-MCP clients/agents, with no change to the retrieval algorithm itself:
 
-- **`search_docs(query, top_k=4)`** — runs the same hybrid retrieval + reranking pipeline
-  used by `chat`/`eval` (`ragkeeper/retrieval.py`), returns structured results
-  (`source_path`, `section_title`, `header_hierarchy`, `content`, `rerank_score`,
-  `content_hash`, `commit_hash`). Retrieval only — it does not call an LLM.
-- **`get_index_health()`** — combines the SQLite sync history (Phase 2) with a live Qdrant
-  point count and reports `collection_exists`, `point_count`, `embedding_model`,
-  `last_sync`, and `consistent`/`notes` if state and the vector store disagree.
-
-Run the server (stdio transport):
-```
-python main.py mcp
-```
-Point an MCP client at it, e.g. in Claude Desktop's config:
-```json
-{
-  "mcpServers": {
-    "ragkeeper": {
-      "command": "python",
-      "args": ["main.py", "mcp"],
-      "cwd": "<absolute path to this repo>"
-    }
-  }
-}
-```
-
-## Phase 5 — Dashboard & observability
-A Streamlit dashboard (`dashboard/`) built entirely on top of the existing shared services
-(retrieval pipeline, `state.py`, `health.py`) — no retrieval/health logic is duplicated.
-
-- **Chat** — history-aware chat (`st.session_state` + `st.rerun()` so the input always stays
-  below the full conversation), follow-up questions condensed into standalone search
-  queries before retrieval. Each answer shows a **Sources** expander, a **Retrieval details**
-  expander (per-doc dense/BM25/RRF/rerank ranks and scores from
-  `RetrievalPipeline.retrieve_with_trace()`), a latency/token/cost caption, and 👍/👎
-  feedback buttons logged to SQLite.
-- **Index Health** — the same `compute_index_health()` used by the MCP server's
-  `get_index_health`, plus sync-run history and live system status.
-- **Evaluation** — browse and compare past `eval` runs (`eval_results/*.json`), drill into
-  per-question results.
-- **Analytics** — query log (latency, tokens, cost, feedback) recorded from every chat turn.
-
-Launch it:
-```
-python main.py dashboard
-```
-
-## Automation — scheduled auto-sync
-`ragkeeper/scheduler.py` wraps the Phase 2 incremental `run_ingestion()` in a sleep loop, so
-the docs stay fresh without a manual `ingest` each time. A failed sync cycle is logged
-(`run_ingestion` already records `status="error"` via `state.record_sync_run`) but does not
-kill the loop — the next cycle still runs on schedule.
-
-```
-python main.py schedule [--interval-hours N]   # default: 24
-```
-
-Note: the dashboard/MCP server build their BM25 keyword index once at startup from a Qdrant
-snapshot. Dense vector search always queries Qdrant live, so it reflects new content
-immediately, but BM25 results won't include docs added by a `schedule` cycle until that
-process restarts.
 
 ## Deployment — Docker / Podman
 `Dockerfile` + `docker-compose.yml` run the whole stack as three containers, all driven by
