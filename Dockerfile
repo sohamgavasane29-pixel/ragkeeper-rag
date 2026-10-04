@@ -7,5 +7,5 @@ RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/wh
     && pip install --no-cache-dir -r requirements.txt
 
 COPY ragkeeper/ ragkeeper/
-COPY dashboard/ dashboard/
+
 COPY main.py .
